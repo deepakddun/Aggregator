@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"example.com/gator/internal/config"
 	"example.com/gator/internal/database"
@@ -13,11 +12,7 @@ import (
 
 func main() {
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
-	defer cancel()
-
-	config.FetchFeed(ctx, "https://www.wagslane.dev/index.xml")
+	//config.FetchFeed(ctx, "https://www.wagslane.dev/index.xml")
 	if len(os.Args) < 2 {
 		fmt.Println("not enough arguments were provided")
 		os.Exit(1)
@@ -55,6 +50,12 @@ func main() {
 	commands.Register("register", config.RegisterHandler)
 	commands.Register("reset", config.ResetHandler)
 	commands.Register("users", config.UsersHandler)
+	commands.Register("agg", config.FetchAggHandler)
+	commands.Register("feeds", config.ListFeedsHandler)
+	commands.Register("follow", middlewareLoggedIn(config.FollowFeedsHandler))
+	commands.Register("following", middlewareLoggedIn(config.FollowingFeedsHandler))
+	commands.Register("addfeed", middlewareLoggedIn(config.AddFeedHandler))
+	commands.Register("unfollow", middlewareLoggedIn(config.UnFollowHandler))
 
 	err = commands.Run(state, command)
 

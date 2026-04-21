@@ -8,3 +8,5 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_user_name ON users (name);
+
+

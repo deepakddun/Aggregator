@@ -11,6 +11,169 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createFeed = `-- name: CreateFeed :one
+INSERT INTO feeds (id, name , url , created_at, user_id)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+RETURNING id, name, url, created_at, updated_at, user_id, last_fetched_at
+`
+
+type CreateFeedParams struct {
+	ID        pgtype.UUID
+	Name      string
+	Url       string
+	CreatedAt pgtype.Timestamptz
+	UserID    pgtype.UUID
+}
+
+func (q *Queries) CreateFeed(ctx context.Context, arg CreateFeedParams) (Feed, error) {
+	row := q.db.QueryRow(ctx, createFeed,
+		arg.ID,
+		arg.Name,
+		arg.Url,
+		arg.CreatedAt,
+		arg.UserID,
+	)
+	var i Feed
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.LastFetchedAt,
+	)
+	return i, err
+}
+
+const createFeedFollow = `-- name: CreateFeedFollow :many
+WITH inserted_feed_follows AS (
+    INSERT INTO feed_follows (id , created_at,user_id , feed_id) 
+    VALUES (
+        $1,
+        $2,
+        $3,
+        $4
+    )
+    RETURNING id, created_at, updated_at, user_id, feed_id
+)
+SELECT 
+    inserted_feed_follows.id, inserted_feed_follows.created_at, inserted_feed_follows.updated_at, inserted_feed_follows.user_id, inserted_feed_follows.feed_id,
+    users.name AS USER_NAME,
+    feeds.name AS FEED_NAME
+FROM
+    inserted_feed_follows,
+    users,
+    feeds
+WHERE    
+   inserted_feed_follows.user_id = users.id
+   AND inserted_feed_follows.feed_id = feeds.id
+`
+
+type CreateFeedFollowParams struct {
+	ID        pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UserID    pgtype.UUID
+	FeedID    pgtype.UUID
+}
+
+type CreateFeedFollowRow struct {
+	ID        pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	UserID    pgtype.UUID
+	FeedID    pgtype.UUID
+	UserName  string
+	FeedName  string
+}
+
+func (q *Queries) CreateFeedFollow(ctx context.Context, arg CreateFeedFollowParams) ([]CreateFeedFollowRow, error) {
+	rows, err := q.db.Query(ctx, createFeedFollow,
+		arg.ID,
+		arg.CreatedAt,
+		arg.UserID,
+		arg.FeedID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CreateFeedFollowRow
+	for rows.Next() {
+		var i CreateFeedFollowRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.UserID,
+			&i.FeedID,
+			&i.UserName,
+			&i.FeedName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const createPost = `-- name: CreatePost :one
+INSERT INTO POSTS (id, url , title , description , created_at, published_at,feed_id)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7
+)
+RETURNING id, url, title, description, created_at, updated_at, published_at, feed_id
+`
+
+type CreatePostParams struct {
+	ID          pgtype.UUID
+	Url         string
+	Title       pgtype.Text
+	Description pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	PublishedAt pgtype.Timestamptz
+	FeedID      pgtype.UUID
+}
+
+func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, error) {
+	row := q.db.QueryRow(ctx, createPost,
+		arg.ID,
+		arg.Url,
+		arg.Title,
+		arg.Description,
+		arg.CreatedAt,
+		arg.PublishedAt,
+		arg.FeedID,
+	)
+	var i Post
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.Title,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PublishedAt,
+		&i.FeedID,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, created_at, name)
 VALUES (
@@ -39,6 +202,21 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteFeedFollow = `-- name: DeleteFeedFollow :exec
+DELETE FROM feed_follows
+WHERE user_id=$1 AND feed_id=$2
+`
+
+type DeleteFeedFollowParams struct {
+	UserID pgtype.UUID
+	FeedID pgtype.UUID
+}
+
+func (q *Queries) DeleteFeedFollow(ctx context.Context, arg DeleteFeedFollowParams) error {
+	_, err := q.db.Exec(ctx, deleteFeedFollow, arg.UserID, arg.FeedID)
+	return err
+}
+
 const deleteUser = `-- name: DeleteUser :exec
 DELETE FROM users
 `
@@ -46,6 +224,121 @@ DELETE FROM users
 func (q *Queries) DeleteUser(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteUser)
 	return err
+}
+
+const getFeedByURL = `-- name: GetFeedByURL :one
+SELECT id, name, url, created_at, updated_at, user_id, last_fetched_at FROM feeds
+WHERE url = $1
+`
+
+func (q *Queries) GetFeedByURL(ctx context.Context, url string) (Feed, error) {
+	row := q.db.QueryRow(ctx, getFeedByURL, url)
+	var i Feed
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.LastFetchedAt,
+	)
+	return i, err
+}
+
+const getFeedFollowsForUser = `-- name: GetFeedFollowsForUser :many
+SELECT f.name as feed_name , u.name as user_name FROM 
+feed_follows ff ,
+feeds f,
+users u
+where ff.feed_id = f.id
+and ff.user_id = u.id
+and u.id = $1
+`
+
+type GetFeedFollowsForUserRow struct {
+	FeedName string
+	UserName string
+}
+
+func (q *Queries) GetFeedFollowsForUser(ctx context.Context, id pgtype.UUID) ([]GetFeedFollowsForUserRow, error) {
+	rows, err := q.db.Query(ctx, getFeedFollowsForUser, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetFeedFollowsForUserRow
+	for rows.Next() {
+		var i GetFeedFollowsForUserRow
+		if err := rows.Scan(&i.FeedName, &i.UserName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getNextFeedToFetch = `-- name: GetNextFeedToFetch :one
+select id, name, url, created_at, updated_at, user_id, last_fetched_at from feeds f 
+order by last_fetched_at asc nulls first
+limit 1
+`
+
+func (q *Queries) GetNextFeedToFetch(ctx context.Context) (Feed, error) {
+	row := q.db.QueryRow(ctx, getNextFeedToFetch)
+	var i Feed
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Url,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.LastFetchedAt,
+	)
+	return i, err
+}
+
+const getPostsByUser = `-- name: GetPostsByUser :many
+select ff.id, ff.created_at, ff.updated_at, ff.user_id, ff.feed_id from feeds f , feed_follows ff
+where f.id = ff.feed_id
+and ff.user_id = $1
+order by f.created_at desc , f.updated_at desc
+LIMIT $2
+`
+
+type GetPostsByUserParams struct {
+	UserID pgtype.UUID
+	Limit  int32
+}
+
+func (q *Queries) GetPostsByUser(ctx context.Context, arg GetPostsByUserParams) ([]FeedFollow, error) {
+	rows, err := q.db.Query(ctx, getPostsByUser, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FeedFollow
+	for rows.Next() {
+		var i FeedFollow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.UserID,
+			&i.FeedID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUser = `-- name: GetUser :one
@@ -88,4 +381,46 @@ func (q *Queries) GetUsers(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const listFeeds = `-- name: ListFeeds :many
+SELECT f.name , f.url , u.name FROM users u JOIN feeds f
+ON u.id = f.user_id
+`
+
+type ListFeedsRow struct {
+	Name   string
+	Url    string
+	Name_2 string
+}
+
+func (q *Queries) ListFeeds(ctx context.Context) ([]ListFeedsRow, error) {
+	rows, err := q.db.Query(ctx, listFeeds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFeedsRow
+	for rows.Next() {
+		var i ListFeedsRow
+		if err := rows.Scan(&i.Name, &i.Url, &i.Name_2); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markFeedFetched = `-- name: MarkFeedFetched :exec
+UPDATE feeds
+SET updated_at=now() , last_fetched_at=now()
+where id = $1
+`
+
+func (q *Queries) MarkFeedFetched(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, markFeedFetched, id)
+	return err
 }
